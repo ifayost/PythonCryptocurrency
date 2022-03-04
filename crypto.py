@@ -1,11 +1,6 @@
-# To do list:
-#   - Variable difficulty
-#   - Tor network for Transactions
-#   - External network
-#   - Cool html interface?
-
-import ecdsa
-from hashlib import sha256
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import serialization
 import datetime
 from collections import defaultdict
 import pandas as pd
@@ -22,11 +17,12 @@ class Blockchain:
         self.bank = defaultdict(float)
         self.bank_block_count = 0
         self.chain = [self.GenesisBlock()]
-        self.pending_transactions = []
+        self.pending_transactions = [] 
 
     def GenesisBlock(self):
-        pk = 'dba49f4be76fd812fe408e3aad1df29c5e3d17357daac91f8a5bc5be71686fc'\
-            'b210fd8cee191486d2cbcb3160cfee5a7dbb2b5b5d923d6c79547a23d618ab261'
+        pk = '-----BEGIN PUBLIC KEY-----\nMFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAE1zC7'\
+            'qvScZQ5FdlGbCKoZ88Gz9MFdONHB\ntSD559FiIbmzpGQs4L85EoJS/Tg8Tdb0+CH'\
+            'JKVT93+P+gZBZj84veA==\n-----END PUBLIC KEY-----\n'
         date = datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
         initial_amount = 20
         first_transaction = Transaction(0, 'MineReward', pk,
@@ -210,7 +206,9 @@ class Block:
                         str(self.previous_hash),
                         str(self.nonse),
                         str(self.transactions)])
-        return sha256(msg.encode()).digest().hex()
+        sha256 = hashes.Hash(hashes.SHA256())
+        sha256.update(msg.encode())
+        return sha256.finalize().hex()
 
     def mine(self, difficulty):
         self.hash = self.calculate_hash()
@@ -234,20 +232,21 @@ class Transaction:
         self.signature = None
 
     def sign(self, private_key):
-        key = ecdsa.SigningKey.from_string(bytes.fromhex(private_key),
-                                           curve=ecdsa.SECP256k1,
-                                           hashfunc=sha256)
-        self.signature = key.sign(self.msg.encode(), hashfunc=sha256).hex()
+        self.signature = private_key.sign(
+            self.msg.encode(), 
+            ec.ECDSA(hashes.SHA256())
+            ).hex()
 
     def verify_sign(self):
         if self.signature is None:
             raise Exception(f'Transaction {self.index} not signed.')
-        public_key = self.sender
-        key = ecdsa.VerifyingKey.from_string(bytes.fromhex(public_key),
-                                             curve=ecdsa.SECP256k1,
-                                             hashfunc=sha256)
+        public_key = serialization.load_pem_public_key(self.sender.encode())
         try:
-            key.verify(bytes.fromhex(self.signature), self.msg.encode())
+            public_key.verify(
+                bytes.fromhex(self.signature),
+                self.msg.encode(),
+                ec.ECDSA(hashes.SHA256())
+                )
             return True
         except Exception:
             return False
@@ -286,10 +285,9 @@ class Transaction:
             return False
         else:
             try:
-                receiver = bytes.fromhex(self.receiver)
-                _ = ecdsa.VerifyingKey.from_string(receiver,
-                                                   curve=ecdsa.SECP256k1,
-                                                   hashfunc=sha256)
+                _ = serialization.load_pem_public_key(
+                    self.receiver.encode()
+                    )
             except Exception as e:
                 print(f'Transaction {self.index} error. '
                       f'{self.receiver} is a wrong receiver direction: {e}')
@@ -297,12 +295,51 @@ class Transaction:
             return True
 
 
-def generate_keys(name):
-    key = ecdsa.SigningKey.generate(curve=ecdsa.SECP256k1)
-    sk = key.to_string().hex()
-    pk = key.verifying_key.to_string().hex()
-    with open(name + '.txt', 'w') as f:
-        f.write(f'Public Key: {pk}')
-        f.write('\n')
-        f.write(f'Private Key: {sk}')
+def generate_keys(name, password=None):
+    key = ec.generate_private_key(ec.SECP256K1())
+    if password:
+        sk = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=\
+                serialization.BestAvailableEncryption(password.encode())
+        )
+    else:
+        sk = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+
+    pk = key.public_key()
+    pk = pk.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+
+    with open(name + '.txt', 'wb') as f:
+        f.write(pk)
+        f.write(b'\n\n')
+        f.write(sk)
     return sk, pk
+
+def load_keys(file, password=None):
+
+    with open(file, 'rb') as f:
+        lines = f.readlines()
+    pk = b''.join(lines[0:4])
+    sk = b''.join(lines[6:])
+
+    pk = serialization.load_pem_public_key(pk)
+
+    if password:
+        sk = serialization.load_pem_private_key(
+            sk,
+            password=password.encode()
+        )
+    else:
+        sk = serialization.load_pem_private_key(
+            sk,
+            password=None
+        )
+    return pk, sk
