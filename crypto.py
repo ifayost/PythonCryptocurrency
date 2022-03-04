@@ -20,11 +20,10 @@ class Blockchain:
         self.pending_transactions = [] 
 
     def GenesisBlock(self):
-        pk = '-----BEGIN PUBLIC KEY-----\nMFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAE1zC7'\
-            'qvScZQ5FdlGbCKoZ88Gz9MFdONHB\ntSD559FiIbmzpGQs4L85EoJS/Tg8Tdb0+CH'\
-            'JKVT93+P+gZBZj84veA==\n-----END PUBLIC KEY-----\n'
+        pk = 'MFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAE876ZlFXjbkI53EQYztVCIp3/a7vGQ0My'\
+            'qcv/nsU3pfPtZZlGdH6LjBM5XZUDBXgZ8KW6psapks5e7vvUiVFxLw=='
         date = datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
-        initial_amount = 20
+        initial_amount = 1000
         first_transaction = Transaction(0, 'MineReward', pk,
                                         initial_amount, date)
         first_transaction.signature = '0' * 128
@@ -32,13 +31,13 @@ class Blockchain:
         genesis_block.mine(self.difficulty)
         self.transactions_count += 1
         self.block_count += 1
-        self.bank[pk] = 20
+        self.bank[pk] = initial_amount
         return genesis_block
 
     def add_transaction(self, sender, receiver, amount, private_key):
         index = self.transactions_count
         date = datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
-        transaction = Transaction(index, sender, receiver, amount, date)
+        transaction = Transaction(index, sender, receiver, float(amount), date)
         transaction.sign(private_key)
         if transaction.verify_transaction(self.bank):
             self.pending_transactions.append(transaction)
@@ -63,6 +62,11 @@ class Blockchain:
         return bank, bank_block_count
 
     def mine(self, miner):
+        try:
+            _ = txt2pk(miner)
+        except Exception as e:
+            print(f'{miner} is a wrong direction: {e}')
+            raise e
         if len(self.pending_transactions) < 1:
             raise Exception('Not enough transactions. '
                             'There has to be 1 or more.')
@@ -222,7 +226,7 @@ class Transaction:
         self.index = index
         self.sender = sender
         self.receiver = receiver
-        self.amount = amount
+        self.amount = float(amount)
         self.date = date
         self.msg = ','.join([str(index),
                              str(sender),
@@ -240,9 +244,9 @@ class Transaction:
     def verify_sign(self):
         if self.signature is None:
             raise Exception(f'Transaction {self.index} not signed.')
-        public_key = serialization.load_pem_public_key(self.sender.encode())
         try:
-            public_key.verify(
+            sender = txt2pk(self.sender)
+            sender.verify(
                 bytes.fromhex(self.signature),
                 self.msg.encode(),
                 ec.ECDSA(hashes.SHA256())
@@ -252,6 +256,7 @@ class Transaction:
             return False
 
     def verify_transaction(self, bank):
+        
         if self.sender == 'MineReward' or self.receiver == 'MineReward':
             print(f'Transaction {self.index} error. '
                   'MineReward is not a valid direction.')
@@ -285,9 +290,7 @@ class Transaction:
             return False
         else:
             try:
-                _ = serialization.load_pem_public_key(
-                    self.receiver.encode()
-                    )
+                _ = txt2pk(self.receiver)
             except Exception as e:
                 print(f'Transaction {self.index} error. '
                       f'{self.receiver} is a wrong receiver direction: {e}')
@@ -343,3 +346,36 @@ def load_keys(file, password=None):
             password=None
         )
     return pk, sk
+
+def pk2txt(pk):
+    txt = pk.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    ).decode().splitlines()[1:-1]
+    return ''.join(txt)
+
+def txt2pk(txt):
+    pk = f'-----BEGIN PUBLIC KEY-----\n{txt[:64]}\n{txt[64:]}\n'\
+        '-----END PUBLIC KEY-----'.encode()
+    return serialization.load_pem_public_key(pk)
+
+def load_transaction(txt):
+    t = txt.split(',')
+    t = {
+        'id': int(t[0]),
+        'Sender': t[1],
+        'Receiver': t[2],
+        'Amount': float(t[3]),
+        'Date': pd.to_datetime(f'{t[4]} {t[5]}',
+                            format="%m/%d/%Y %H:%M:%S"),
+        'Signature': t[6]
+        }
+    transaction = Transaction(
+        t['id'],
+        t['Sender'],
+        t['Receiver'],
+        t['Amount'],
+        t['Date'].strftime("%m/%d/%Y, %H:%M:%S")
+        )
+    transaction.signature = t['Signature']
+    return transaction
