@@ -285,8 +285,11 @@ class Transaction:
         elif self.amount > bank[self.sender]:
             print(f'Transaction {self.index} error. '
                   f'Limit amount exceeded. {self.sender} ' +
-                  f'has only {bank[self.sender]} coins' +
+                  f'has only {bank[self.sender]} coins ' +
                   f'and is triying to send {self.amount}')
+            return False
+        elif not txt2pk(self.receiver):
+            print('Transaction {self.index} error. Invalid receiver direction.')
             return False
         else:
             try:
@@ -357,7 +360,12 @@ def pk2txt(pk):
 def txt2pk(txt):
     pk = f'-----BEGIN PUBLIC KEY-----\n{txt[:64]}\n{txt[64:]}\n'\
         '-----END PUBLIC KEY-----'.encode()
-    return serialization.load_pem_public_key(pk)
+    try:
+        pk = serialization.load_pem_public_key(pk)
+    except:
+        print(f"Error. Couldn't load the public key: {pk}")
+        pk = False
+    return pk
 
 def load_transaction(txt):
     t = txt.split(',')
