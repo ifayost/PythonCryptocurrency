@@ -9,7 +9,9 @@ import pickle
 
 class Blockchain:
     def __init__(self):
-        self.miner_reward = 50
+        self.max_supply = 1_000_000
+        self.sum_ratio = 1/2
+        self.sum_coef = self.max_supply * (1 - self.sum_ratio)
         self.difficulty = 4
         self.max_block_transactions = 100
         self.transactions_count = 0
@@ -23,11 +25,12 @@ class Blockchain:
         pk = 'MFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAE876ZlFXjbkI53EQYztVCIp3/a7vGQ0My'\
             'qcv/nsU3pfPtZZlGdH6LjBM5XZUDBXgZ8KW6psapks5e7vvUiVFxLw=='
         date = datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
-        initial_amount = 1000
+        initial_amount = self.sum_coef * self.sum_ratio ** 0
         first_transaction = Transaction(0, 'MineReward', pk,
                                         initial_amount, date)
         first_transaction.signature = '0' * 128
-        genesis_block = Block(0, '0' * 64, [first_transaction], date)
+        genesis_block = Block(0, '0' * 64, [first_transaction], date, 
+                              self.sum_ratio, self.sum_coef)
         genesis_block.mine(self.difficulty)
         self.transactions_count += 1
         self.block_count += 1
@@ -91,15 +94,17 @@ class Blockchain:
                 raise Exception('No valid transactions found.')
             last_index = transaction.index
             date = datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
+            miner_reward = self.sum_coef * self.sum_ratio ** len(self.chain) 
             reward_transaction = Transaction(last_index + 1, 'MineReward',
-                                             miner, self.miner_reward, date)
+                                             miner, miner_reward, date)
             reward_transaction.signature = '0' * 128
             transactions.append(reward_transaction)
             self.transactions_count += 1
             bank = self.calculate_bank(bank, 'MineReward',
-                                       miner, self.miner_reward)
+                                       miner, miner_reward)
             previous_hash = self.chain[-1].hash
-            block = Block(len(self.chain), previous_hash, transactions, date)
+            block = Block(len(self.chain), previous_hash, transactions, date,
+                          self.sum_ratio, self.sum_coef)
             block.mine(self.difficulty)
             self.chain.append(block)
             bank_block_count += 1
@@ -137,8 +142,8 @@ class Blockchain:
                 t = transaction.split(',')
                 if t[1] == 'MineReward':
                     miner_rewards += float(t[3])
-            if miner_rewards != self.miner_reward:
-                raise Exception('In block' + t[0] + 'there is a fraudulent '
+            if miner_rewards != self.sum_coef * self.sum_ratio ** block.index:
+                raise Exception('In block' + block.index + 'there is a fraudulent '
                                 'miner reward.')
             prev_hash = hash_
         return True
@@ -166,7 +171,7 @@ class Blockchain:
 
     def print_blocks(self):
         chain = pd.DataFrame(columns=['Block_id', 'PrevHash', 'Hash', 'Nonse',
-                                      'Transactions', 'Date'])
+                                      'Transactions', 'Date', 'MinerReward'])
         for block in self.chain:
             chain = chain.append(
                 {'Block_id': block.index,
@@ -175,7 +180,8 @@ class Blockchain:
                  'Nonse': block.nonse,
                  'Transactions': block.transactions,
                  'Date': pd.to_datetime(block.datetime,
-                                        format="%m/%d/%Y, %H:%M:%S")},
+                                        format="%m/%d/%Y, %H:%M:%S"),
+                 'MinerReward': block.miner_reward},
                 ignore_index=True
             )
         return chain
@@ -195,8 +201,10 @@ class Blockchain:
 
 
 class Block:
-    def __init__(self, index, previous_hash, transactions, datetime):
+    def __init__(self, index, previous_hash, transactions, datetime, 
+                 sum_ratio, sum_coef):
         self.index = index
+        self.miner_reward = sum_coef * sum_ratio ** index 
         self.datetime = datetime
         self.transactions = ';'.join([t.msg + ',' + t.signature
                                      for t in transactions])
